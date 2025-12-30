@@ -1,66 +1,26 @@
-﻿using Microsoft.AspNetCore.Identity;
+﻿using MediatR;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+using OtpDemo.Api.Commands.RequestOtp;
+using OtpDemo.Api.Commands.VerifyOtp;
 using OtpDemo.Api.Dtos;
-using OtpDemo.Api.Entities;
-using OtpDemo.Api.Services.Interfaces;
 
 namespace OtpDemo.Api.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
-public class OtpController : ControllerBase
+[Route("api/otp")]
+[Produces("application/json")]
+public sealed class OtpController(ISender sender) : ControllerBase
 {
-    private readonly UserManager<ApplicationUser> _userManager;
-    private readonly IOtpService _otpService;
-    private readonly IJwtTokenService _jwtTokenService;
-
-    public OtpController(
-        UserManager<ApplicationUser> userManager,
-        IOtpService otpService,
-        IJwtTokenService jwtTokenService)
-    {
-        _userManager = userManager;
-        _otpService = otpService;
-        _jwtTokenService = jwtTokenService;
-    }
+    private readonly ISender _sender = sender;
 
     [HttpPost("request")]
-    public async Task<IActionResult> RequestOtp([FromBody] OtpRequestDto dto)
+    public new async Task<IActionResult> Request([FromBody] RequestOtpCommand command, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(dto.PhoneNumber))
-            return BadRequest("Phone number is required.");
-
-        await _otpService.GenerateAndSendOtpAsync(dto.PhoneNumber);
-        return Ok("OTP sent.");
+        await _sender.Send(command, ct);
+        return NoContent();
     }
 
     [HttpPost("verify")]
-    public async Task<IActionResult> VerifyOtp([FromBody] OtpVerifyDto dto)
-    {
-        var valid = await _otpService.ValidateOtpAsync(dto.PhoneNumber, dto.Code);
-        if (!valid) return BadRequest("Invalid or expired OTP.");
-
-        var user = await _userManager.Users.SingleOrDefaultAsync(u => u.PhoneNumber == dto.PhoneNumber);
-        if (user == null)
-        {
-            user = new ApplicationUser
-            {
-                Id = Guid.NewGuid(),
-                UserName = dto.PhoneNumber,
-                PhoneNumber = dto.PhoneNumber,
-                PhoneNumberConfirmed = true,
-                LastLoginAt = DateTime.UtcNow
-            };
-            await _userManager.CreateAsync(user);
-        }
-        else
-        {
-            user.LastLoginAt = DateTime.UtcNow;
-            await _userManager.UpdateAsync(user);
-        }
-
-        var token = _jwtTokenService.GenerateToken(user);
-        return Ok(new { token });
-    }
+    public async Task<ActionResult<VerifyOtpResultDto>> Verify([FromBody] VerifyOtpCommand command, CancellationToken ct)
+        => Ok(await _sender.Send(command, ct));
 }
